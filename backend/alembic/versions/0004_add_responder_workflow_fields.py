@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0004_add_responder_workflow_fields"
+revision = "0004_responder_workflow"
 down_revision = "0003_add_safety_reports"
 branch_labels = None
 depends_on = None

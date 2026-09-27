@@ -78,6 +78,10 @@
     @apply focus-ring inline-flex items-center justify-center gap-2 rounded-full bg-primary-red px-5 py-2.5 text-sm font-bold text-white shadow-radar transition duration-200 hover:-translate-y-0.5 hover:bg-bright-red active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none;
   }
 
+  .glass-field {
+    @apply focus-ring w-full rounded-xl border border-white/15 bg-background-deep/80 px-4 py-3 text-sm text-white placeholder:text-muted-text shadow-sm backdrop-blur-md;
+  }
+
   .reveal {
     animation: reveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
   }

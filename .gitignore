@@ -4,3 +4,6 @@ frontend/node_modules/
 backend/.pytest_cache/
 backend/__pycache__/
 *.py[cod]
+
+frontend/dist/
+frontend/tsconfig.tsbuildinfo

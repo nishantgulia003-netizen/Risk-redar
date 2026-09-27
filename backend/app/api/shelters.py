@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models import Area, Shelter as ShelterModel
 from app.schemas.contracts import RecommendedShelter, Shelter
+from app.services.safety_status import resolve_target
 from app.services.site_ranking import rank_shelters
 router = APIRouter(tags=["shelters"])
 @router.get("/shelters", response_model=list[Shelter])
@@ -12,7 +13,17 @@ def shelters(db: Session = Depends(get_db)):
     result = []
     for shelter in db.scalars(select(ShelterModel)):
         point = to_shape(shelter.geometry)
-        result.append({"shelter_id": str(shelter.id), "name": shelter.name, "capacity": shelter.capacity, "lat": point.y, "lon": point.x, "medical_facility": shelter.medical_facility, "water_available": shelter.water_available})
+        result.append({
+            "shelter_id": str(shelter.id),
+            "name": shelter.name,
+            "capacity": shelter.capacity,
+            "lat": point.y,
+            "lon": point.x,
+            "geometry": {"type": "Point", "coordinates": [point.x, point.y]},
+            "medical_facility": shelter.medical_facility,
+            "water_available": shelter.water_available,
+            "safety_status": resolve_target(db, "shelter", shelter.id).status,
+        })
     return result
 @router.get("/shelters/recommended", response_model=list[RecommendedShelter])
 def recommended_shelters(area_id: int = Query(gt=0), db: Session = Depends(get_db)):

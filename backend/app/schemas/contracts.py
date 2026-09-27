@@ -15,6 +15,11 @@ class GeoJSONPolygon(BaseModel):
     type: Literal["Polygon"] = "Polygon"
     coordinates: list[list[list[float]]]
 
+
+class GeoJSONPoint(BaseModel):
+    type: Literal["Point"] = "Point"
+    coordinates: list[float]
+
 class RiskFeature(BaseModel):
     type: Literal["Feature"] = "Feature"
     geometry: GeoJSONPolygon
@@ -36,8 +41,17 @@ class Shelter(BaseModel):
     capacity: int
     lat: float
     lon: float
+    # GeoJSON is the canonical map representation. lat/lon remain for legacy
+    # dashboard callers that already consume this established contract.
+    geometry: GeoJSONPoint
     medical_facility: bool
     water_available: bool
+    safety_status: Literal["safe", "unsafe", "unconfirmed"]
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
+    service: Literal["riskradar-api"]
 
 class RecommendedShelter(BaseModel):
     shelter_id: str
@@ -134,3 +148,86 @@ class SafetyStatusResponse(BaseModel):
     status: Literal["safe", "unsafe", "unconfirmed"]
     confidence: float = Field(ge=0, le=1)
     contributing_report_count: int = Field(ge=0)
+
+
+class ResponderVerifyRequest(BaseModel):
+    decision: Literal["confirm", "dismiss"]
+    responder_name: str = Field(min_length=1, max_length=255)
+
+
+class DispatchStatusRequest(BaseModel):
+    status: Literal["none", "dispatched", "in_progress", "resolved"]
+
+
+class DispatchStatusResponse(BaseModel):
+    id: int
+    name: str
+    dispatch_status: Literal["none", "dispatched", "in_progress", "resolved"]
+
+
+class RiskMeterResponse(BaseModel):
+    score: float = Field(ge=0, le=100)
+    band: Literal["low", "rising", "elevated", "critical"]
+    report_count: int = Field(ge=0)
+    last_report_at: datetime | None
+
+
+class RiskMeterLeaderboardItem(RiskMeterResponse):
+    target_id: int
+    target_name: str
+
+
+class ResponderShelterSummary(BaseModel):
+    shelter_id: int
+    shelter_name: str
+    capacity: int
+    current_occupancy: int
+    remaining_capacity: int
+
+
+class ResponderAreaOverview(BaseModel):
+    id: int
+    name: str
+    geometry: dict[str, Any]
+    centroid: dict[str, Any]
+    population: int
+    risk_score: float
+    risk_priority: Literal["IMMEDIATE", "HIGH", "MODERATE", "SAFE"]
+    dispatch_status: Literal["none", "dispatched", "in_progress", "resolved"]
+    nearest_shelter: ResponderShelterSummary | None
+
+
+class ResponderShelterOverview(BaseModel):
+    id: int
+    name: str
+    geometry: dict[str, Any]
+    capacity: int
+    current_occupancy: int
+    occupancy_pct: float = Field(ge=0, le=100)
+    safety_status: Literal["safe", "unsafe", "unconfirmed"]
+
+
+class ResponderOverviewResponse(BaseModel):
+    areas: list[ResponderAreaOverview]
+    shelters: list[ResponderShelterOverview]
+
+
+class PendingResponderReport(BaseModel):
+    id: int
+    target_type: Literal["road_segment", "shelter", "area"]
+    target_id: int | None
+    target_name: str | None
+    source_type: Literal["police", "rescue_team", "news", "user"]
+    status: Literal["unsafe", "safe", "blocked", "clear"]
+    description: str | None
+    reporter_id: str | None
+    latitude: float | None
+    longitude: float | None
+    created_at: datetime
+    effective_trust_weight: float = Field(ge=0, le=1)
+    is_verified: bool
+    verification_decision: Literal["confirm", "dismiss"] | None
+
+
+class ResponderReportVerification(PendingResponderReport):
+    verified_by: str | None

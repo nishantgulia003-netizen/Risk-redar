@@ -8,6 +8,7 @@ from app.db.session import Base
 
 class Area(Base):
     __tablename__ = "areas"
+    __table_args__ = (CheckConstraint("dispatch_status IN ('none', 'dispatched', 'in_progress', 'resolved')", name="ck_area_dispatch_status"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
     geometry: Mapped[WKBElement] = mapped_column(Geometry("POLYGON", srid=4326), nullable=False)
@@ -15,6 +16,7 @@ class Area(Base):
     elderly_pct: Mapped[float] = mapped_column(Float, nullable=False)
     children_pct: Mapped[float] = mapped_column(Float, nullable=False)
     historical_disaster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dispatch_status: Mapped[str] = mapped_column(String(20), nullable=False, default="none", server_default="none")
     hazards: Mapped[list["HazardLayer"]] = relationship(back_populates="area", cascade="all, delete-orphan")
 
 class HazardLayer(Base):
@@ -52,6 +54,7 @@ class SafetyReport(Base):
         CheckConstraint("target_type IN ('road_segment', 'shelter', 'area')", name="ck_safety_report_target_type"),
         CheckConstraint("source_type IN ('police', 'rescue_team', 'news', 'user')", name="ck_safety_report_source_type"),
         CheckConstraint("status IN ('unsafe', 'safe', 'blocked', 'clear')", name="ck_safety_report_status"),
+        CheckConstraint("verification_decision IS NULL OR verification_decision IN ('confirm', 'dismiss')", name="ck_safety_report_verification_decision"),
         Index("ix_safety_reports_target_created", "target_type", "target_id", "created_at"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -62,6 +65,9 @@ class SafetyReport(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     reporter_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    verified_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    verification_decision: Mapped[str | None] = mapped_column(String(20), nullable=True)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

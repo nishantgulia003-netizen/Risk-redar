@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import Area, RoadSegment, SafetyReport, Shelter
-from app.schemas.contracts import SafetyReportCreate, SafetyReportResponse, SafetyStatusResponse
-from app.services.safety_status import resolve_target
+from app.schemas.contracts import RiskMeterLeaderboardItem, RiskMeterResponse, SafetyReportCreate, SafetyReportResponse, SafetyStatusResponse
+from app.services.safety_status import get_risk_meter, resolve_target
 
 router = APIRouter(tags=["safety reports"])
 _TARGET_MODELS = {"road_segment": RoadSegment, "shelter": Shelter, "area": Area}
@@ -38,3 +38,21 @@ def safety_status_summary(db: Session = Depends(get_db)):
         resolved = resolve_target(db, target_type, target_id)
         if resolved.status != "safe": result.append({"target_type": target_type, "target_id": target_id, **resolved.__dict__})
     return result
+
+
+@router.get("/safety-meter", response_model=RiskMeterResponse)
+def safety_meter(target_type: str = Query(pattern="^(road_segment|shelter|area)$"), target_id: int = Query(gt=0), db: Session = Depends(get_db)):
+    if db.get(_TARGET_MODELS[target_type], target_id) is None:
+        raise HTTPException(status_code=404, detail="Target not found")
+    return get_risk_meter(db, target_type, target_id).__dict__
+
+
+@router.get("/safety-meter/leaderboard", response_model=list[RiskMeterLeaderboardItem])
+def safety_meter_leaderboard(target_type: str = Query(pattern="^(road_segment|shelter|area)$"), db: Session = Depends(get_db)):
+    model = _TARGET_MODELS[target_type]
+    rows = []
+    for target in db.scalars(select(model)):
+        meter = get_risk_meter(db, target_type, target.id)
+        target_name = f"Road segment {target.id}" if target_type == "road_segment" else target.name
+        rows.append({"target_id": target.id, "target_name": target_name, **meter.__dict__})
+    return sorted(rows, key=lambda row: row["score"], reverse=True)

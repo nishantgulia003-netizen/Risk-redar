@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-background font-sans text-white antialiased;
+    background-color: #0E0E0E;
+    background-image: 
+      radial-gradient(circle at 50% -8%, rgba(239, 46, 75, 0.14) 0%, transparent 58%),
+      radial-gradient(circle at 92% 82%, rgba(239, 46, 75, 0.07) 0%, transparent 48%),
+      radial-gradient(circle at 8% 45%, rgba(239, 46, 75, 0.04) 0%, transparent 40%);
+    background-attachment: fixed;
+  }
+
+  button, input, select, textarea {
+    font: inherit;
+  }
+}
+
+@layer components {
+  /* Liquid Glass Surfaces */
+  .glass-surface {
+    background: rgba(255, 255, 255, 0.055);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-surface-subtle {
+    background: rgba(255, 255, 255, 0.035);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-surface-elevated {
+    background: rgba(22, 20, 23, 0.72);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  .glass-active-red {
+    background: rgba(239, 46, 75, 0.16);
+    border: 1px solid rgba(239, 46, 75, 0.45);
+    box-shadow: 0 0 20px rgba(239, 46, 75, 0.25), inset 0 1px 0 rgba(255, 73, 100, 0.35);
+  }
+
+  /* Legacy hud-card mapped to liquid glass */
+  .hud-card {
+    @apply rounded-glass border border-white/10 bg-white/[0.045] p-5 text-white shadow-glass backdrop-blur-glass transition duration-200;
+  }
+
+  .hud-label {
+    @apply font-hud text-[11px] font-semibold tracking-wider text-muted-text;
+  }
+
+  .pill {
+    @apply rounded-full;
+  }
+
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-red focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  .tactical-button {
+    @apply focus-ring inline-flex items-center justify-center gap-2 rounded-full bg-primary-red px-5 py-2.5 text-sm font-bold text-white shadow-radar transition duration-200 hover:-translate-y-0.5 hover:bg-bright-red active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .reveal {
+    animation: reveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .risk-zone-card {
+    animation: reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Skeleton Shimmer Loading */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.03) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s infinite;
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes radar-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes beacon {
+  50% {
+    transform: scale(1.15);
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

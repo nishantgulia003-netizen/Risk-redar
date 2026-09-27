@@ -30,15 +30,33 @@ class ResolvedSafetyStatus:
     contributing_report_count: int
 
 
+@dataclass(frozen=True)
+class RiskMeter:
+    score: float
+    band: str
+    report_count: int
+    last_report_at: datetime | None
+
+
+def risk_meter_band(score: float) -> str:
+    """Classify the documented, inclusive-lower-bound risk-meter bands."""
+    return "low" if score < 25 else "rising" if score < 50 else "elevated" if score < 75 else "critical"
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def decayed_weight(report: SafetyReport, now: datetime | None = None) -> float:
     now = now or _now()
+    if getattr(report, "verification_decision", None) == "dismiss":
+        return 0.0
     created = report.created_at if report.created_at.tzinfo else report.created_at.replace(tzinfo=timezone.utc)
     age_minutes = max(0.0, (now - created).total_seconds() / 60)
-    return TRUST_WEIGHTS[report.source_type] * 0.5 ** (age_minutes / HALF_LIFE_MINUTES)
+    # A responder-confirmed report is trusted evidence, irrespective of its
+    # original source. Production authorization belongs at the API boundary.
+    trust = 1.0 if getattr(report, "verification_decision", None) == "confirm" else TRUST_WEIGHTS[report.source_type]
+    return trust * 0.5 ** (age_minutes / HALF_LIFE_MINUTES)
 
 
 def _distance_meters(first_lat: float, first_lng: float, second_lat: float, second_lng: float) -> float:
@@ -70,25 +88,48 @@ def _independent_reports(reports: list[SafetyReport], now: datetime) -> list[Saf
     return list(strongest.values())
 
 
+def _created_at(report: SafetyReport) -> datetime:
+    return report.created_at if report.created_at.tzinfo else report.created_at.replace(tzinfo=timezone.utc)
+
+
+def _is_active_user_report(report: SafetyReport, now: datetime) -> bool:
+    return (
+        report.source_type == "user"
+        and report.status in {"unsafe", "blocked"}
+        and getattr(report, "verification_decision", None) != "dismiss"
+        and now - _created_at(report) <= USER_WINDOW
+    )
+
+
+def _user_contributors(reports: list[SafetyReport], *, latitude: float | None, longitude: float | None, now: datetime) -> tuple[list[SafetyReport], list[SafetyReport]]:
+    """Return active local reports and their independent 500 m contributors."""
+    user_reports = [report for report in reports if _is_active_user_report(report, now)]
+    if latitude is not None and longitude is not None:
+        local = [report for report in user_reports if report.latitude is not None and report.longitude is not None and _distance_meters(latitude, longitude, report.latitude, report.longitude) <= USER_RADIUS_METERS]
+        return local, _independent_reports(local, now)
+    candidates = [report for report in user_reports if report.latitude is not None and report.longitude is not None]
+    clusters = [[other for other in candidates if _distance_meters(report.latitude, report.longitude, other.latitude, other.longitude) <= USER_RADIUS_METERS] for report in candidates]
+    local = max(clusters, key=lambda cluster: sum(decayed_weight(item, now) for item in cluster), default=[])
+    return local, _independent_reports(local, now)
+
+
 def resolve_reports(reports: Iterable[SafetyReport], *, latitude: float | None = None, longitude: float | None = None, now: datetime | None = None) -> ResolvedSafetyStatus:
     """Resolve supplied reports without mutating them or trusting stale input."""
     now = now or _now()
     current = list(reports)
-    official = [report for report in current if report.source_type != "user" and report.status in {"unsafe", "blocked"} and decayed_weight(report, now) > OFFICIAL_FLOOR]
+    official = [
+        report for report in current
+        if (report.source_type != "user" or getattr(report, "verification_decision", None) == "confirm")
+        and report.status in {"unsafe", "blocked"}
+        and decayed_weight(report, now) > OFFICIAL_FLOOR
+    ]
     if official:
         return ResolvedSafetyStatus("unsafe", round(max(decayed_weight(report, now) for report in official), 3), len(official))
     # Only danger reports participate. Current schema has no "dismissed"
     # status; safe/clear (and any future dismissed value) are excluded here.
-    user_reports = [report for report in current if report.source_type == "user" and report.status in {"unsafe", "blocked"} and now - (report.created_at if report.created_at.tzinfo else report.created_at.replace(tzinfo=timezone.utc)) <= USER_WINDOW]
-    if latitude is not None and longitude is not None:
-        user_reports = [report for report in user_reports if report.latitude is not None and report.longitude is not None and _distance_meters(latitude, longitude, report.latitude, report.longitude) <= USER_RADIUS_METERS]
-        contributors = _independent_reports(user_reports, now)
-    else:
-        # Target-linked user reports still need geographic corroboration; find
-        # the strongest 500 m cluster rather than combining distant reports.
-        candidates = [report for report in user_reports if report.latitude is not None and report.longitude is not None]
-        clusters = [[other for other in candidates if _distance_meters(report.latitude, report.longitude, other.latitude, other.longitude) <= USER_RADIUS_METERS] for report in candidates]
-        contributors = _independent_reports(max(clusters, key=lambda cluster: sum(decayed_weight(item, now) for item in cluster), default=[]), now)
+    # Target-linked user reports still need geographic corroboration; choose
+    # the strongest 500 m cluster rather than combining distant reports.
+    user_reports, contributors = _user_contributors(current, latitude=latitude, longitude=longitude, now=now)
     weighted = sum(decayed_weight(report, now) for report in contributors)
     # Deterministic user corroboration rule: each distinct reporter contributes
     # one freshness unit at creation, decaying by the same 45-minute curve as
@@ -101,6 +142,39 @@ def resolve_reports(reports: Iterable[SafetyReport], *, latitude: float | None =
     if user_reports:
         return ResolvedSafetyStatus("unconfirmed", round(weighted, 3), len(contributors))
     return ResolvedSafetyStatus("safe", 1.0, 0)
+
+
+def get_risk_meter(session: Session, target_type: str, target_id: int, *, now: datetime | None = None) -> RiskMeter:
+    """Return a 0-100 view of the active evidence used by ``resolve_target``.
+
+    Score is ``100 * min(1, active_weight)``. Active weight is the summed
+    decayed trust of the same independently reported 500 m user cluster and
+    active official/confirmed evidence used by status resolution. If that
+    evidence resolves the target as unsafe (including the explicit four-user
+    corroboration rule), the score has a 75-point floor: an unsafe target is
+    always in the ``critical`` band. Dismissed, stale, safe, and clear reports
+    contribute zero. This makes the meter a normalized presentation of the
+    resolver rather than a second risk model.
+    """
+    now = now or _now()
+    reports = reports_for_target(session, target_type, target_id)
+    official = [
+        report for report in reports
+        if (report.source_type != "user" or getattr(report, "verification_decision", None) == "confirm")
+        and report.status in {"unsafe", "blocked"}
+        and decayed_weight(report, now) > OFFICIAL_FLOOR
+    ]
+    _, users = _user_contributors(reports, latitude=None, longitude=None, now=now)
+    evidence = official + [report for report in users if report not in official]
+    weighted = sum(decayed_weight(report, now) for report in evidence)
+    resolved = resolve_reports(reports, now=now)
+    score = min(100.0, weighted * 100)
+    if resolved.status == "unsafe":
+        score = max(score, 75.0)
+    score = round(score, 2)
+    band = risk_meter_band(score)
+    last_report_at = max((_created_at(report) for report in evidence), default=None)
+    return RiskMeter(score=score, band=band, report_count=len(evidence), last_report_at=last_report_at)
 
 
 def reports_for_target(session: Session, target_type: str, target_id: int | None) -> list[SafetyReport]:

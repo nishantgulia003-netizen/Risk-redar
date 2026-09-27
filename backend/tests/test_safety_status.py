@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.services.safety_status import HALF_LIFE_MINUTES, decayed_weight, resolve_reports
+from app.services.safety_status import HALF_LIFE_MINUTES, decayed_weight, get_risk_meter, resolve_reports, risk_meter_band
 
 
 NOW = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
@@ -76,3 +76,46 @@ def test_safe_and_clear_reports_do_not_create_unsafe_status():
         report("police", status="clear"),
     ]
     assert resolve_reports(reports, latitude=12.9, longitude=77.5, now=NOW).status == "safe"
+
+
+class ReportSession:
+    def __init__(self, reports):
+        self.reports = reports
+
+    def scalars(self, _statement):
+        return self.reports
+
+
+def test_risk_meter_zero_reports_is_low_and_deterministic():
+    session = ReportSession([])
+    first = get_risk_meter(session, "area", 1, now=NOW)
+    second = get_risk_meter(session, "area", 1, now=NOW)
+    assert first == second
+    assert (first.score, first.band, first.report_count) == (0.0, "low", 0)
+
+
+def test_risk_meter_dismissed_evidence_contributes_zero():
+    dismissed = report("user", reporter_id="device", status="unsafe")
+    dismissed.verification_decision = "dismiss"
+    meter = get_risk_meter(ReportSession([dismissed]), "area", 1, now=NOW)
+    assert (meter.score, meter.band, meter.report_count) == (0.0, "low", 0)
+
+
+def test_risk_meter_confirmed_evidence_is_critical():
+    confirmed = report("user", reporter_id="device")
+    confirmed.verification_decision = "confirm"
+    meter = get_risk_meter(ReportSession([confirmed]), "area", 1, now=NOW)
+    assert (meter.score, meter.band, meter.report_count) == (100.0, "critical", 1)
+    assert resolve_reports([confirmed], latitude=12.9, longitude=77.5, now=NOW).status == "unsafe"
+
+
+def test_risk_meter_band_boundaries():
+    assert [risk_meter_band(score) for score in (0, 24.99, 25, 49.99, 50, 74.99, 75, 100)] == [
+        "low", "low", "rising", "rising", "elevated", "elevated", "critical", "critical"
+    ]
+
+
+def test_stale_user_evidence_is_ignored_by_meter():
+    stale = report("user", reporter_id="device", created_at=NOW.replace(hour=9, minute=59))
+    meter = get_risk_meter(ReportSession([stale]), "area", 1, now=NOW)
+    assert (meter.score, meter.report_count) == (0.0, 0)
